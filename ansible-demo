@@ -1,0 +1,150 @@
+
+ansible-playbook -i /path/to/my_inventory_file -u my_connection_user -k -f 3 -T 30 -t my_tag -M /path/to/my_modules -b -K my_playbook.yml
+Loads my_playbook.yml from the current working directory and:
+-i - uses my_inventory_file in the path provided for inventory to match the pattern.
+-u - connects over SSH as my_connection_user.
+-k - asks for password which is then provided to SSH authentication.
+-f - allocates 3 forks.
+-T - sets a 30-second timeout.
+-t - runs only tasks marked with the tag my_tag.
+-M - loads local modules from /path/to/my_modules.
+-b - executes with elevated privileges (uses become).
+-K - prompts the user for the become password.
+
+
+sudo yum update && yum install ansible
+ansible --version
+ansible-playbook setup_jenkins.yml
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+
+--- --------------ansible config----------------
+/etc/ansible/hosts (default inventory)
+
+create one file in a directory.
+save a keyfile which will be used by ansible playbook
+change the key file permission to 400
+cat /etc/ansible/ansible.cfg (to check the ansible configuration file)
+#The above file will not have much configuration, so you have to take backup of existing ansible.cfg and hit below and create a new ansible.cfg
+
+ansible-config init --disabled -t all > ansible.cfg
+
+---------------------------ansible config---------------------------------
+1. ANSILE_CONFIG (environment variable if set)
+2. ansible.cfg (in the current dir)
+3. ~/.ansible.cfg (in the home dir)
+4. /etc/ansible/ansible.cfg (global)
+
+-----------------------ansible.cfg in current dir--------------------------------
+[deafults]
+host_key_checking=False
+inventory = ./inventory
+forks = 5
+log_path = /var/log/ansible.log
+
+[privilege_escalation]
+become=True
+become_method=sudo
+become_ask_pass=False
+------ --------ansible inventory create -------------------------------
+
+vi inventory
+
+all:
+  hosts:
+    web01:
+      ansible_host: 10.10.10.10
+    web02:
+      ansible_host: 10.10.10.11
+    db01:
+      ansible_host: 10.10.10.12
+  children:
+    webservers:
+      hosts:
+        web01:
+        web02:
+    dbservers:
+      hosts:
+        db01:
+    dc_oregon:
+      children:
+        webservers:
+        dbservers:
+      vars:
+        ansible_user: ec2-usr
+        ansible_ssh_private_key_file: clientkey.pem
+
+-------------------ansible ping test---------------------------------
+
+ansible web01 -m ping -i inventory
+ansible 'web*' -m ping -i inventory
+ansible dc_oregon -m ping -i inventory
+ansible all -m ping -i inventory
+----- ---- ansible adhoc------------ -----------
+ansible web01 -m ansible.builtin.yum -a "name=httpd state=present" -i inventory --become ##To install app
+ansible web01 -m ansible.builtin.yum -a "name=httpd state=present" -i inventory --become ##To remove app
+ansible webservers -m ansible.builtin.service -a "name=httpd state=started enabled=yes" -i inventory --become ## to start and enable a service
+ansible webservers -m ansible.builtin.copy -a "src=index.html dest=/var/www/html/index.html" -i inventory --become ##To copy a file
+
+-------------- ----- ------------playbook for install httpd and java and Jenkins-------------------------------------
+vi  web-app.yaml
+----
+- name : webservers setup
+  hosts: webservers
+  become: yes
+  tasks:
+    - name: Install httpd
+      ansible.builtin.yum
+        name: httpd
+        state: present
+
+    - name: Start Service
+      ansible.builtin.service
+        name: httpd
+        state: started
+        enabled: yes
+
+    - name: Install Java
+      ansible.builtin.yum:
+        name: default-jdk
+        state: present
+
+    - name: Add Jenkins repository key
+      ansible.builtin.yum_key:
+        url: https://pkg.jenkins.io/debian/jenkins.io.key
+        state: present
+
+    - name: Add Jenkins repository
+      ansible.builtin.yum_repository:
+        repo: deb https://pkg.jenkins.io/debian-stable binary/
+        state: present
+
+    - name: Install Jenkins
+      ansible.builtin.yum:
+        name: jenkins
+        state: present
+        update_cache: true
+
+    - name: Start and enable Jenkins
+      ansible.builtin.service:
+        name: jenkins
+        state: started
+        enabled: true
+    register: dbout
+
+    - name: print dbout variable
+      debug:
+        var: dbout
+
+---- ---------------  -----------------------------------------------------------
+ansible-playbook -i inventory web-app.yaml
+ansible-playbook -i inventory web-app.yaml --syntax-check ##syntax check
+ansible-playbook -i inventory web-app.yaml -C ##dry run
+ansible-playbook -i inventory web-app.yaml -vvvv ##error logging
+------- -----------------ansible var -------------------------  ------------------------
+mkdir group_vars
+vi group_vars/all
+
+dbname: sky
+dbuser: pilot
+dbpass: air
+
